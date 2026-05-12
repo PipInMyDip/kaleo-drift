@@ -102,8 +102,9 @@ func _process(delta: float) -> void:
 	var player := _find_player()
 	if player == null:
 		return
-	_tick_zones(player, delta)
-	_tick_latency(player, delta)
+	if not GameState.going_dark:
+		_tick_zones(player, delta)
+		_tick_latency(player, delta)
 	_refresh_panel()
 
 
@@ -168,6 +169,8 @@ func get_least_zone() -> int:
 # ------------------------------------------------------------------ #
 
 func record_near_miss(player_vel: Vector2, player_pos: Vector2 = Vector2.ZERO) -> void:
+	if GameState.going_dark:
+		return
 	last_dodge_source = player_pos
 	if player_vel.length_squared() < 100.0:
 		return
@@ -188,7 +191,7 @@ func _cardinal(v: Vector2) -> String:
 # ------------------------------------------------------------------ #
 
 func notify_bullet_spawned(player_vel: Vector2) -> void:
-	if _lat_pending:
+	if GameState.going_dark or _lat_pending:
 		return
 	_lat_pending  = true
 	_lat_start    = Time.get_ticks_msec() / 1000.0

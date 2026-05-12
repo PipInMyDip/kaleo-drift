@@ -16,6 +16,8 @@ const STOMP_DURATION := 0.18
 const OUTLINE_RADIUS := 15.5
 const OUTLINE_SEGS   := 24
 
+const EMP_SCENE := preload("res://scenes/abilities/emp.tscn")
+
 var hp             := MAX_HP
 var boosting       := false
 var boost_timer    := 0.0
@@ -24,11 +26,16 @@ var _invincible    := false
 var _inv_timer     := 0.0
 var _stomp_timer   := 0.0
 
+# Class ability state
+var _going_dark_timer    : float = 0.0
+var _dark_cooldown_timer : float = 0.0
+var _dark_aura           : Line2D = null
+
 @onready var _visual: Polygon2D = $Visual
 
 var _outline     : Line2D
 var _sparks      : CPUParticles2D
-var _spark_timer : float = 0.0      # controls intermittent crackle timing
+var _spark_timer : float = 0.0
 
 
 func _ready() -> void:
@@ -37,6 +44,7 @@ func _ready() -> void:
 	_init_visual()
 	_init_hitbox()
 	_init_scion_effects()
+	_init_class_effects()
 
 
 func _init_collider() -> void:
@@ -99,19 +107,25 @@ func _init_scion_effects() -> void:
 func _input(event: InputEvent) -> void:
 	if event is InputEventKey:
 		var k := event as InputEventKey
-		if k.physical_keycode == KEY_SPACE and k.pressed and not k.echo:
+		if not k.pressed or k.echo:
+			return
+		if k.physical_keycode == KEY_SPACE:
 			if cooldown_timer <= 0.0 and not boosting:
 				_activate_boost()
+		elif k.physical_keycode == KEY_Q:
+			_use_ability()
 
 
 func _physics_process(delta: float) -> void:
 	_tick_timers(delta)
+	_tick_ability(delta)
 	_move()
 	_check_stomp()
 
 
 func _process(delta: float) -> void:
 	_refresh_scion_effects(delta)
+	_refresh_class_effects()
 
 
 func _move() -> void:
@@ -165,6 +179,9 @@ func _refresh_visual() -> void:
 		_visual.color = Color(0.55, 0.76, 1.0, 1.0)
 	else:
 		_visual.color = Color(0.93, 0.93, 0.97, 1.0)
+	# Ghost going-dark overrides alpha
+	if GameState.going_dark:
+		_visual.color.a = 0.2
 
 
 func _refresh_scion_effects(delta: float) -> void:
@@ -220,10 +237,14 @@ func take_damage(amount: int = 1) -> void:
 
 func _die() -> void:
 	hp = MAX_HP
-	position = Vector2.ZERO
-	velocity = Vector2.ZERO
+	position    = Vector2.ZERO
+	velocity    = Vector2.ZERO
 	_invincible = true
-	_inv_timer = 2.0
+	_inv_timer  = 2.0
+	# Cancel any active class ability
+	GameState.going_dark    = false
+	_going_dark_timer       = 0.0
+	_dark_cooldown_timer    = 0.0
 	hp_changed.emit(hp)
 
 
@@ -264,6 +285,61 @@ func _spawn_stomp_burst(world_pos: Vector2) -> void:
 	p.position               = world_pos
 	get_tree().current_scene.add_child(p)
 	get_tree().create_timer(1.2).timeout.connect(p.queue_free)
+
+
+func _init_class_effects() -> void:
+	if GameState.current_class == "ghost":
+		_dark_aura = Line2D.new()
+		_dark_aura.width = 3.5
+		_dark_aura.default_color = Color(0.65, 0.15, 1.0, 0.0)
+		_dark_aura.z_index = -1
+		var pts := _circle_pts(OUTLINE_RADIUS + 7.0, OUTLINE_SEGS)
+		var closed := PackedVector2Array(pts)
+		closed.append(pts[0])
+		_dark_aura.points = closed
+		add_child(_dark_aura)
+
+
+func _use_ability() -> void:
+	match GameState.current_class:
+		"ghost":
+			if _going_dark_timer <= 0.0 and _dark_cooldown_timer <= 0.0:
+				_activate_ghost_dark()
+		"engineer":
+			if get_tree().get_nodes_in_group("emps").size() < 2:
+				_deploy_emp()
+
+
+func _tick_ability(delta: float) -> void:
+	if _going_dark_timer > 0.0:
+		_going_dark_timer = maxf(_going_dark_timer - delta, 0.0)
+		if _going_dark_timer <= 0.0:
+			GameState.going_dark = false
+			_dark_cooldown_timer = 12.0
+	elif _dark_cooldown_timer > 0.0:
+		_dark_cooldown_timer = maxf(_dark_cooldown_timer - delta, 0.0)
+
+
+func _activate_ghost_dark() -> void:
+	_going_dark_timer    = 3.0
+	GameState.going_dark = true
+
+
+func _deploy_emp() -> void:
+	var emp := EMP_SCENE.instantiate()
+	emp.position = get_global_mouse_position()
+	emp.add_to_group("emps")
+	get_tree().current_scene.add_child(emp)
+
+
+func _refresh_class_effects() -> void:
+	if _dark_aura == null:
+		return
+	var t := Time.get_ticks_msec() / 1000.0
+	if GameState.going_dark:
+		_dark_aura.default_color = Color(0.65, 0.15, 1.0, 0.45 + 0.30 * abs(sin(t * 3.5)))
+	else:
+		_dark_aura.default_color = Color(0.65, 0.15, 1.0, 0.0)
 
 
 func _circle_pts(r: float, n: int) -> PackedVector2Array:

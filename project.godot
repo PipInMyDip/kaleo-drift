@@ -11,10 +11,10 @@ config_version=5
 [application]
 
 config/name="Kaleo Drift"
-run/main_scene="res://scenes/arena/arena.tscn"
+run/main_scene="res://scenes/class_select/class_select.tscn"
 config/features=PackedStringArray("4.6", "Forward Plus")
 config/icon="res://icon.svg"
-config/run/main_scene="res://scenes/arena/arena.tscn"
+config/run/main_scene="res://scenes/class_select/class_select.tscn"
 
 [display]
 
@@ -27,6 +27,7 @@ window/size/viewport_height=720
 
 [autoload]
 
+GameState="*res://game_state.gd"
 SCIONTracker="*res://scion_tracker.gd"
 
 [rendering]

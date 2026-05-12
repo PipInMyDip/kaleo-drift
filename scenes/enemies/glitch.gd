@@ -22,8 +22,9 @@ var _target_timer : float = 0.0
 var _lunge_timer    : float = 0.0
 var _lunge_cooldown : float = 0.0
 
-var frozen        : bool  = false
-var _mercy_timer  : float = 0.0
+var frozen           : bool  = false
+var _mercy_timer     : float = 0.0
+var _emp_freeze_timer: float = 0.0
 
 
 func _ready() -> void:
@@ -49,6 +50,11 @@ func _physics_process(delta: float) -> void:
 
 	if _mercy_timer > 0.0:
 		_mercy_timer = maxf(_mercy_timer - delta, 0.0)
+		queue_redraw()
+		return
+
+	if _emp_freeze_timer > 0.0:
+		_emp_freeze_timer = maxf(_emp_freeze_timer - delta, 0.0)
 		queue_redraw()
 		return
 
@@ -115,8 +121,15 @@ func _tick_lunge(delta: float, conf: float) -> void:
 
 
 func _update_target(delta: float, conf: float) -> void:
-	# During a lunge the target is already set; don't override it
 	if _lunge_timer > 0.0:
+		return
+
+	# While player is going dark, lose target and wander randomly
+	if GameState.going_dark:
+		_target_timer -= delta
+		if _target_timer <= 0.0:
+			_target_timer = randf_range(1.0, 2.5)
+			_target = _edge_point(randf() * TAU)
 		return
 
 	if conf < 0.4:
@@ -164,6 +177,10 @@ func mercy() -> bool:
 		_mercy_timer = 10.0
 		return true
 	return false
+
+
+func emp_freeze(duration: float) -> void:
+	_emp_freeze_timer = maxf(_emp_freeze_timer, duration)
 
 
 func die() -> void:

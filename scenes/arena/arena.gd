@@ -5,11 +5,21 @@ const MAX_ENEMIES      := 4
 const RESPOND_DURATION := 4.0
 const GLITCH_SCENE     := preload("res://scenes/enemies/glitch.tscn")
 
+const CLASS_COLORS := {
+	"engineer": Color(0.20, 0.90, 1.00),
+	"soldier":  Color(1.00, 0.55, 0.10),
+	"scout":    Color(0.20, 1.00, 0.40),
+	"ghost":    Color(0.70, 0.20, 1.00),
+	"commander":Color(1.00, 0.82, 0.10),
+	"blank":    Color(0.95, 0.95, 0.97),
+}
+
 @onready var player : CharacterBody2D = $Player
 
-var _hp_label    : Label
-var _boost_label : Label
-var _spawn_timer : float = 0.0
+var _hp_label      : Label
+var _boost_label   : Label
+var _ability_label : Label
+var _spawn_timer   : float = 0.0
 
 # ── Phase state ────────────────────────────────────────────────────────────── #
 
@@ -77,6 +87,7 @@ func _process(delta: float) -> void:
 		_boost_label.modulate = Color(0.4, 1.0, 0.4)
 
 	_tick_phase(delta)
+	_tick_ability_label()
 	if _phase == Phase.DODGE:
 		_tick_spawner(delta)
 
@@ -281,13 +292,61 @@ func _build_hud() -> void:
 	vbox.add_child(_boost_label)
 
 	var hint := Label.new()
-	hint.text     = "WASD / arrows: move     SPACE: jetpack boost"
+	hint.text     = "WASD / arrows: move     SPACE: boost     Q: ability"
 	hint.modulate = Color(0.5, 0.5, 0.6)
 	vbox.add_child(hint)
+
+	# Class indicator row
+	var cls_color := CLASS_COLORS.get(GameState.current_class, Color(0.6, 0.6, 0.6))
+	var class_row := HBoxContainer.new()
+	class_row.add_theme_constant_override("separation", 6)
+	vbox.add_child(class_row)
+
+	var cls_swatch := ColorRect.new()
+	cls_swatch.color                = cls_color
+	cls_swatch.custom_minimum_size  = Vector2(8.0, 8.0)
+	class_row.add_child(cls_swatch)
+
+	var cls_lbl := Label.new()
+	cls_lbl.text = GameState.current_class.to_upper()
+	cls_lbl.add_theme_color_override("font_color", cls_color)
+	cls_lbl.add_theme_font_size_override("font_size", 11)
+	class_row.add_child(cls_lbl)
+
+	# Ability cooldown label
+	_ability_label = Label.new()
+	_ability_label.text     = "Q: READY"
+	_ability_label.modulate = cls_color
+	_ability_label.add_theme_font_size_override("font_size", 11)
+	vbox.add_child(_ability_label)
 
 
 func _on_hp_changed(new_hp: int) -> void:
 	_hp_label.text = "HP: %d / %d" % [new_hp, player.MAX_HP]
+
+
+func _tick_ability_label() -> void:
+	if not is_instance_valid(player) or _ability_label == null:
+		return
+	var cls_color := CLASS_COLORS.get(GameState.current_class, Color(0.6, 0.6, 0.6))
+	match GameState.current_class:
+		"ghost":
+			if player._going_dark_timer > 0.0:
+				_ability_label.text    = "DARK: %.1fs" % player._going_dark_timer
+				_ability_label.modulate = Color(0.70, 0.20, 1.00)
+			elif player._dark_cooldown_timer > 0.0:
+				_ability_label.text    = "Q: %.1fs" % player._dark_cooldown_timer
+				_ability_label.modulate = Color(0.45, 0.20, 0.65)
+			else:
+				_ability_label.text    = "Q: GO DARK"
+				_ability_label.modulate = Color(0.70, 0.20, 1.00)
+		"engineer":
+			var n := get_tree().get_nodes_in_group("emps").size()
+			_ability_label.text     = "Q: EMP  (%d/2 active)" % n
+			_ability_label.modulate = cls_color if n < 2 else Color(0.45, 0.45, 0.45)
+		_:
+			_ability_label.text    = "Q: —"
+			_ability_label.modulate = cls_color
 
 
 # ── Response UI ────────────────────────────────────────────────────────────── #
