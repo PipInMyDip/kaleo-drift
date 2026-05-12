@@ -1,19 +1,26 @@
 extends CharacterBody2D
 
 const ARENA_RADIUS  := 350.0
-const BASE_SPEED    := 80.0
-const SPEED_BONUS   := 40.0   # extra speed at max confidence
 const SPIKE_OUTER   := 12.0
 const SPIKE_INNER   := 5.0
 const SPIKE_COUNT   := 7
 
-var _pts   : PackedVector2Array
-var _cols  : PackedColorArray
-var _target        : Vector2
-var _patrol_a      : Vector2
-var _patrol_b      : Vector2
-var _going_to_b    : bool = true
-var _target_timer  : float = 0.0
+const LUNGE_SPEED    := 350.0
+const LUNGE_DURATION := 0.4
+const LUNGE_COOLDOWN := 2.0
+const LUNGE_RANGE    := 200.0
+
+var _pts  : PackedVector2Array
+var _cols : PackedColorArray
+
+var _target       : Vector2
+var _patrol_a     : Vector2
+var _patrol_b     : Vector2
+var _going_to_b   : bool  = true
+var _target_timer : float = 0.0
+
+var _lunge_timer   : float = 0.0   # > 0 = currently lunging
+var _lunge_cooldown: float = 0.0   # > 0 = cooling down
 
 
 func _ready() -> void:
@@ -34,16 +41,18 @@ func _ready() -> void:
 
 
 func _physics_process(delta: float) -> void:
-	_update_target(delta)
-
 	var conf := SCIONTracker.confidence
-	var spd  := BASE_SPEED + conf * SPEED_BONUS
 
+	_tick_lunge(delta, conf)
+	_update_target(delta, conf)
+
+	var spd := _current_speed(conf)
 	var dir := (_target - position)
 	if dir.length_squared() > 1.0:
 		dir = dir.normalized()
 
-	velocity = velocity.lerp(dir * spd, 0.15)
+	var lerp_t := 0.30 if _lunge_timer > 0.0 else 0.15
+	velocity = velocity.lerp(dir * spd, lerp_t)
 	move_and_slide()
 
 	if position.length() > ARENA_RADIUS:
@@ -54,17 +63,52 @@ func _physics_process(delta: float) -> void:
 
 func _draw() -> void:
 	draw_polygon(_pts, _cols)
-	# Outline
 	var n := _pts.size()
 	for i in range(n):
 		draw_line(_pts[i], _pts[(i + 1) % n], Color(1.0, 0.18, 0.08, 0.55), 1.0)
 
 
-func _update_target(delta: float) -> void:
-	var conf := SCIONTracker.confidence
+func _current_speed(conf: float) -> float:
+	if _lunge_timer > 0.0:
+		return LUNGE_SPEED
+	if conf >= 0.8:
+		return 200.0
+	if conf >= 0.6:
+		return 160.0
+	return 110.0
+
+
+func _tick_lunge(delta: float, conf: float) -> void:
+	if _lunge_timer > 0.0:
+		_lunge_timer = maxf(_lunge_timer - delta, 0.0)
+		return
+
+	if _lunge_cooldown > 0.0:
+		_lunge_cooldown = maxf(_lunge_cooldown - delta, 0.0)
+		return
+
+	if conf < 0.8:
+		return
+
+	var g := get_tree().get_nodes_in_group("player")
+	if g.size() == 0:
+		return
+
+	var player := g[0] as Node2D
+	if position.distance_to(player.position) <= LUNGE_RANGE:
+		_lunge_timer    = LUNGE_DURATION
+		_lunge_cooldown = LUNGE_COOLDOWN
+		# Immediately lock target onto predicted intercept for the lunge
+		var pvel : Vector2 = (player as CharacterBody2D).velocity
+		_target = player.position + pvel * 0.9
+
+
+func _update_target(delta: float, conf: float) -> void:
+	# During a lunge the target is already set; don't override it
+	if _lunge_timer > 0.0:
+		return
 
 	if conf < 0.4:
-		# Patrol between two edge points
 		_target_timer -= delta
 		if position.distance_to(_target) < 18.0 or _target_timer <= 0.0:
 			_going_to_b = not _going_to_b
@@ -72,7 +116,6 @@ func _update_target(delta: float) -> void:
 			_target_timer = randf_range(1.8, 3.2)
 
 	elif conf < 0.7:
-		# Drift toward dominant zone edge, re-pick every ~2s
 		_target_timer -= delta
 		if _target_timer <= 0.0:
 			_target_timer = randf_range(1.6, 2.4)
@@ -81,14 +124,15 @@ func _update_target(delta: float) -> void:
 			_target = _edge_point(dom_a) * randf_range(0.55, 0.90)
 
 	else:
-		# Hunt: home toward player
 		var g := get_tree().get_nodes_in_group("player")
 		if g.size() > 0:
-			_target = (g[0] as Node2D).position
+			var player    := g[0] as CharacterBody2D
+			var pred_mul  := 0.9 if conf >= 0.8 else 0.6
+			_target = player.position + player.velocity * pred_mul
 
 
 func _build_shape() -> void:
-	_pts = PackedVector2Array()
+	_pts  = PackedVector2Array()
 	_cols = PackedColorArray()
 	for i in range(SPIKE_COUNT * 2):
 		var a := TAU * float(i) / float(SPIKE_COUNT * 2)
