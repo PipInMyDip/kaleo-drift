@@ -9,17 +9,22 @@ extends Node2D
 #   0.6–0.8 — wall with gap in player's least-used direction
 #   0.8+    — mirror: fires back at the player's last safe spot
 
-const BULLET_SCENE  := preload("res://scenes/bullets/bullet.tscn")
-const FIRE_INTERVAL := 0.55
-const BULLET_COUNT  := 6
-const BULLET_SPEED  := 185.0
+signal burst_cycle_complete
+
+const BULLET_SCENE   := preload("res://scenes/bullets/bullet.tscn")
+const FIRE_INTERVAL  := 0.55
+const BULLET_COUNT   := 6
+const BULLET_SPEED   := 185.0
+const BURSTS_PER_CYCLE := 3
 
 var _container    : Node2D
 var _timer        : float = 0.0
-var _angle        : float = 0.0      # rotation state for radial / wall patterns
-var _spiral_angle : float = 0.0      # spiral's current base angle
-var _wall_gap     : float = 0.0      # gap angle for wall pattern, lerped each burst
-var _burst_num    : int   = 0        # burst counter for pattern cycling
+var _angle        : float = 0.0
+var _spiral_angle : float = 0.0
+var _wall_gap     : float = 0.0
+var _burst_num    : int   = 0
+
+var paused : bool = false
 
 
 func _ready() -> void:
@@ -28,12 +33,16 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	if paused:
+		return
 	_timer += delta
 	if _timer >= FIRE_INTERVAL:
 		_timer -= FIRE_INTERVAL
 		_burst_num += 1
 		_fire()
 		_angle += deg_to_rad(12.0)
+		if _burst_num % BURSTS_PER_CYCLE == 0:
+			burst_cycle_complete.emit()
 
 
 func _fire() -> void:
@@ -218,3 +227,10 @@ func _spawn(dir: Vector2, speed: float) -> void:
 func _find_player() -> Node:
 	var g := get_tree().get_nodes_in_group("player")
 	return g[0] if g.size() > 0 else null
+
+
+func subvert() -> void:
+	_spiral_angle = randf() * TAU
+	_wall_gap     = randf() * TAU
+	_burst_num    = 0
+	_timer        = 0.0

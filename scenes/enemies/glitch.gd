@@ -19,8 +19,11 @@ var _patrol_b     : Vector2
 var _going_to_b   : bool  = true
 var _target_timer : float = 0.0
 
-var _lunge_timer   : float = 0.0   # > 0 = currently lunging
-var _lunge_cooldown: float = 0.0   # > 0 = cooling down
+var _lunge_timer    : float = 0.0
+var _lunge_cooldown : float = 0.0
+
+var frozen        : bool  = false
+var _mercy_timer  : float = 0.0
 
 
 func _ready() -> void:
@@ -41,6 +44,14 @@ func _ready() -> void:
 
 
 func _physics_process(delta: float) -> void:
+	if frozen:
+		return
+
+	if _mercy_timer > 0.0:
+		_mercy_timer = maxf(_mercy_timer - delta, 0.0)
+		queue_redraw()
+		return
+
 	var conf := SCIONTracker.confidence
 
 	_tick_lunge(delta, conf)
@@ -146,6 +157,13 @@ func _build_shape() -> void:
 
 func _edge_point(angle: float) -> Vector2:
 	return Vector2(cos(angle), sin(angle)) * (ARENA_RADIUS - 30.0)
+
+
+func mercy() -> bool:
+	if randf() < 0.40:
+		_mercy_timer = 10.0
+		return true
+	return false
 
 
 func die() -> void:
