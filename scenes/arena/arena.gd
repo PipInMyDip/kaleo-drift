@@ -1,18 +1,21 @@
 extends Node2D
 
-const HEX_RADIUS := 380.0
+const HEX_RADIUS   := 380.0
+const MAX_ENEMIES  := 4
+const GLITCH_SCENE := preload("res://scenes/enemies/glitch.tscn")
 
 @onready var player: CharacterBody2D = $Player
 
-var _hp_label: Label
-var _boost_label: Label
+var _hp_label    : Label
+var _boost_label : Label
+var _spawn_timer : float = 0.0
 
 func _ready() -> void:
 	_draw_hex()
 	_build_hud()
 	player.hp_changed.connect(_on_hp_changed)
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	if not is_instance_valid(player):
 		return
 	if player.boosting:
@@ -24,6 +27,7 @@ func _process(_delta: float) -> void:
 	else:
 		_boost_label.text = "BOOST: READY"
 		_boost_label.modulate = Color(0.4, 1.0, 0.4)
+	_tick_spawner(delta)
 
 func _draw_hex() -> void:
 	var pts := _hex_pts(HEX_RADIUS)
@@ -68,6 +72,39 @@ func _build_hud() -> void:
 
 func _on_hp_changed(new_hp: int) -> void:
 	_hp_label.text = "HP: %d / %d" % [new_hp, player.MAX_HP]
+
+func _tick_spawner(delta: float) -> void:
+	var interval := 5.0 if SCIONTracker.confidence >= 0.5 else 8.0
+	_spawn_timer += delta
+	if _spawn_timer < interval:
+		return
+	_spawn_timer = 0.0
+	if get_tree().get_nodes_in_group("enemies").size() >= MAX_ENEMIES:
+		return
+	var angle := randf() * TAU
+	var pos   := Vector2(cos(angle), sin(angle)) * (HEX_RADIUS - 25.0)
+	_flash_warning(pos)
+	get_tree().create_timer(0.6).timeout.connect(_spawn_glitch.bind(pos))
+
+
+func _flash_warning(pos: Vector2) -> void:
+	var flash := Polygon2D.new()
+	flash.polygon = _circle_pts(18.0, 8)
+	flash.color   = Color(1.0, 1.0, 1.0, 0.9)
+	flash.position = pos
+	add_child(flash)
+	var tween := create_tween()
+	tween.tween_property(flash, "color", Color(1.0, 1.0, 1.0, 0.0), 0.6)
+	tween.tween_callback(flash.queue_free)
+
+
+func _spawn_glitch(pos: Vector2) -> void:
+	if get_tree().get_nodes_in_group("enemies").size() >= MAX_ENEMIES:
+		return
+	var g := GLITCH_SCENE.instantiate()
+	add_child(g)
+	g.position = pos
+
 
 func _hex_pts(r: float) -> PackedVector2Array:
 	var pts := PackedVector2Array()

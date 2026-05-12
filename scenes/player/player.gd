@@ -9,6 +9,8 @@ const BOOST_DURATION := 0.22
 const BOOST_COOLDOWN := 1.0
 const RADIUS         := 10.0
 const ARENA_RADIUS   := 355.0
+const STOMP_VEL_Y    := -380.0
+const STOMP_DURATION := 0.18
 
 # SCION outline — ring around the player that reacts to confidence thresholds
 const OUTLINE_RADIUS := 15.5
@@ -20,6 +22,7 @@ var boost_timer    := 0.0
 var cooldown_timer := 0.0
 var _invincible    := false
 var _inv_timer     := 0.0
+var _stomp_timer   := 0.0
 
 @onready var _visual: Polygon2D = $Visual
 
@@ -104,6 +107,7 @@ func _input(event: InputEvent) -> void:
 func _physics_process(delta: float) -> void:
 	_tick_timers(delta)
 	_move()
+	_check_stomp()
 
 
 func _process(delta: float) -> void:
@@ -121,6 +125,11 @@ func _move() -> void:
 
 	var spd := BOOST_SPEED if boosting else SPEED
 	velocity = velocity.lerp(dir * spd, 0.8)
+
+	# Sustain upward stomp bounce against the aggressive lerp
+	if _stomp_timer > 0.0:
+		velocity.y = minf(velocity.y, STOMP_VEL_Y * (_stomp_timer / STOMP_DURATION))
+
 	move_and_slide()
 
 	if position.length() > ARENA_RADIUS:
@@ -140,6 +149,9 @@ func _tick_timers(delta: float) -> void:
 		_inv_timer -= delta
 		if _inv_timer <= 0.0:
 			_invincible = false
+
+	if _stomp_timer > 0.0:
+		_stomp_timer = maxf(_stomp_timer - delta, 0.0)
 
 	_refresh_visual()
 
@@ -213,6 +225,45 @@ func _die() -> void:
 	_invincible = true
 	_inv_timer = 2.0
 	hp_changed.emit(hp)
+
+
+func _check_stomp() -> void:
+	if velocity.y < 50.0 or _stomp_timer > 0.0:
+		return
+	for e in get_tree().get_nodes_in_group("enemies"):
+		var diff := (e as Node2D).position - position
+		if diff.y > 0.0 and diff.y < 26.0 and abs(diff.x) < 22.0:
+			_execute_stomp(e)
+			return
+
+
+func _execute_stomp(enemy: Node) -> void:
+	_stomp_timer = STOMP_DURATION
+	_spawn_stomp_burst((enemy as Node2D).global_position)
+	if is_instance_valid(enemy) and enemy.has_method("die"):
+		enemy.die()
+
+
+func _spawn_stomp_burst(world_pos: Vector2) -> void:
+	var p := CPUParticles2D.new()
+	p.emitting               = true
+	p.amount                 = 16
+	p.lifetime               = 0.45
+	p.one_shot               = true
+	p.explosiveness          = 0.95
+	p.emission_shape         = CPUParticles2D.EMISSION_SHAPE_SPHERE_SURFACE
+	p.emission_sphere_radius = 8.0
+	p.direction              = Vector2(1.0, 0.0)
+	p.spread                 = 180.0
+	p.initial_velocity_min   = 80.0
+	p.initial_velocity_max   = 220.0
+	p.gravity                = Vector2.ZERO
+	p.scale_amount_min       = 1.0
+	p.scale_amount_max       = 3.0
+	p.color                  = Color(1.0, 0.18, 0.06, 1.0)
+	p.position               = world_pos
+	get_tree().current_scene.add_child(p)
+	get_tree().create_timer(1.2).timeout.connect(p.queue_free)
 
 
 func _circle_pts(r: float, n: int) -> PackedVector2Array:
