@@ -47,7 +47,7 @@ func _process(delta: float) -> void:
 	if not _near_miss_done and is_instance_valid(_player):
 		if position.distance_to(_player.position) < 120.0:
 			_near_miss_done = true
-			SCIONTracker.record_near_miss(_player.velocity)
+			SCIONTracker.record_near_miss(_player.velocity, _player.position)
 
 
 func _hit(area: Area2D) -> void:

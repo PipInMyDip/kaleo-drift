@@ -1,28 +1,37 @@
 extends Node2D
 
-# Rotating radial burst with SCION-adaptive behavior at higher confidence.
-#   < 0.3  confidence: standard rotating radial pattern
-#   0.3–0.6 confidence: weights bullets toward player's most-occupied zones
-#   > 0.6  confidence: half bullets lead toward predicted player position
+# SCION-adaptive bullet emitter.
+# Patterns unlock as confidence rises; each tier adds a new pattern to the rotation.
+#
+#   < 0.3  — radial burst (baseline)
+#   0.3–0.4 — zone-biased (cuts off habitual escape routes)
+#   0.4–0.6 — spiral homing toward dominant zone
+#   0.6–0.8 — wall with gap in player's least-used direction
+#   0.8+    — mirror: fires back at the player's last safe spot
 
 const BULLET_SCENE  := preload("res://scenes/bullets/bullet.tscn")
 const FIRE_INTERVAL := 0.55
 const BULLET_COUNT  := 6
 const BULLET_SPEED  := 185.0
 
-var _container: Node2D
-var _timer    : float = 0.0
-var _angle    : float = 0.0
+var _container    : Node2D
+var _timer        : float = 0.0
+var _angle        : float = 0.0      # rotation state for radial / wall patterns
+var _spiral_angle : float = 0.0      # spiral's current base angle
+var _wall_gap     : float = 0.0      # gap angle for wall pattern, lerped each burst
+var _burst_num    : int   = 0        # burst counter for pattern cycling
 
 
 func _ready() -> void:
 	_container = get_parent().get_node("Bullets")
+	_spiral_angle = randf() * TAU    # start spiral at random angle
 
 
 func _process(delta: float) -> void:
 	_timer += delta
 	if _timer >= FIRE_INTERVAL:
 		_timer -= FIRE_INTERVAL
+		_burst_num += 1
 		_fire()
 		_angle += deg_to_rad(12.0)
 
@@ -33,15 +42,34 @@ func _fire() -> void:
 
 	SCIONTracker.notify_bullet_spawned(player.velocity if player else Vector2.ZERO)
 
-	if conf < 0.3 or player == null:
+	if player == null or conf < 0.3:
 		_burst_radial()
-	elif conf < 0.6:
+		return
+
+	if conf < 0.4:
 		_burst_zone_biased()
+	elif conf < 0.6:
+		# Spiral is primary; sprinkle in zone-bias every 3rd burst for variety
+		if _burst_num % 3 == 0:
+			_burst_zone_biased()
+		else:
+			_burst_spiral(player)
+	elif conf < 0.8:
+		# Wall is primary; leading shot every 3rd burst keeps pressure varied
+		match _burst_num % 3:
+			1:   _burst_leading(player)
+			_:   _burst_wall(player)
 	else:
-		_burst_leading(player)
+		# Mirror is primary; wall and leading alternate for coverage
+		match _burst_num % 4:
+			0, 2: _burst_mirror(player)
+			1:    _burst_wall(player)
+			3:    _burst_leading(player)
 
 
-# ---- Confidence < 0.3: classic rotating radial ----
+# ------------------------------------------------------------------ #
+#  Pattern 0 — Rotating radial  (< 0.3)
+# ------------------------------------------------------------------ #
 
 func _burst_radial() -> void:
 	for i in range(BULLET_COUNT):
@@ -49,14 +77,16 @@ func _burst_radial() -> void:
 		_spawn(Vector2(cos(a), sin(a)), BULLET_SPEED)
 
 
-# ---- Confidence 0.3–0.6: bias toward player's most-used zones ----
-# Cuts off the escape routes the player habitually relies on.
+# ------------------------------------------------------------------ #
+#  Pattern 1 — Zone-biased  (0.3+)
+#  Weights bullets toward the player's most-occupied zones,
+#  blocking the escape routes they habitually rely on.
+# ------------------------------------------------------------------ #
 
 func _burst_zone_biased() -> void:
 	for _i in range(BULLET_COUNT):
 		var zone := _sample_zone_weighted()
-		# Center angle of this zone; add random spread within ±11°
-		var a := float(zone) * TAU / 6.0 + randf_range(-0.20, 0.20)
+		var a    := float(zone) * TAU / 6.0 + randf_range(-0.20, 0.20)
 		_spawn(Vector2(cos(a), sin(a)), BULLET_SPEED)
 
 
@@ -71,8 +101,60 @@ func _sample_zone_weighted() -> int:
 	return weights.size() - 1
 
 
-# ---- Confidence > 0.6: lead shots aimed at predicted player position ----
-# Half the burst leads; half keeps the radial pressure.
+# ------------------------------------------------------------------ #
+#  Pattern 2 — Tight spiral homing toward dominant zone  (0.4+)
+#  Fires a dense 140° arc that continuously rotates while drifting
+#  toward wherever the player spends the most time.
+# ------------------------------------------------------------------ #
+
+func _burst_spiral(player: Node) -> void:
+	var dom_zone    := SCIONTracker.get_dominant_zone()
+	var target_a    := float(dom_zone) * TAU / 6.0
+
+	# Advance rotation and nudge toward dominant zone
+	_spiral_angle += deg_to_rad(22.0)
+	_spiral_angle  = lerp_angle(_spiral_angle, target_a, 0.07)
+
+	var count := 10
+	var step  := deg_to_rad(14.0)   # tight spacing — 10 bullets × 14° = 140° arc
+
+	for i in range(count):
+		var a   := _spiral_angle + step * float(i)
+		# Slight speed gradient so the arc has depth
+		var spd := BULLET_SPEED * (0.86 + float(i) * 0.025)
+		_spawn(Vector2(cos(a), sin(a)), spd)
+
+
+# ------------------------------------------------------------------ #
+#  Pattern 3 — Wall with moving gap  (0.6+)
+#  Full ring of 14 bullets minus a gap that sits in the player's
+#  least-used zone — forcing escape through uncomfortable territory.
+# ------------------------------------------------------------------ #
+
+func _burst_wall(player: Node) -> void:
+	var least_zone := SCIONTracker.get_least_zone()
+	var target_gap := float(least_zone) * TAU / 6.0
+
+	# Ease the gap angle toward the least-used zone (makes it feel dynamic)
+	_wall_gap = lerp_angle(_wall_gap, target_gap, 0.12)
+
+	var count    := 14
+	var gap_half := deg_to_rad(34.0)   # ~68° total gap — tight but passable
+
+	for i in range(count):
+		var a    := _angle + TAU * float(i) / float(count)
+		# Collapse angular diff to [-PI, PI] for correct comparison
+		var diff := abs(fmod(a - _wall_gap + PI, TAU) - PI)
+		if diff < gap_half:
+			continue
+		_spawn(Vector2(cos(a), sin(a)), BULLET_SPEED * 0.88)
+
+
+# ------------------------------------------------------------------ #
+#  Pattern 4 — Lead shots  (0.6+ secondary)
+#  Half the burst aims at the player's predicted position;
+#  kept as rotation filler to maintain pressure between walls.
+# ------------------------------------------------------------------ #
 
 func _burst_leading(player: Node) -> void:
 	var pred : Vector2 = player.position + player.velocity * 0.4
@@ -87,14 +169,45 @@ func _burst_leading(player: Node) -> void:
 
 	for i in range(BULLET_COUNT):
 		if i < half:
-			var dir := lead_dir.rotated(randf_range(-0.22, 0.22))
-			_spawn(dir, BULLET_SPEED * 1.15)
+			_spawn(lead_dir.rotated(randf_range(-0.22, 0.22)), BULLET_SPEED * 1.15)
 		else:
 			var a := _angle + TAU * float(i) / float(BULLET_COUNT)
 			_spawn(Vector2(cos(a), sin(a)), BULLET_SPEED)
 
 
-# ---- Helpers ----
+# ------------------------------------------------------------------ #
+#  Pattern 5 — Mirror  (0.8+)
+#  Fires a focused fan back toward the player's last dodge source —
+#  the position they just retreated FROM — exploiting the tendency
+#  to return to safe spots.
+# ------------------------------------------------------------------ #
+
+func _burst_mirror(player: Node) -> void:
+	var source := SCIONTracker.last_dodge_source
+	if source.length_squared() < 4.0:
+		_burst_radial()
+		return
+
+	var back_dir := source.normalized()
+	var base_a   := atan2(back_dir.y, back_dir.x)
+
+	# Dense fan toward the retreat spot
+	var count  := 8
+	var spread := deg_to_rad(52.0)
+	for i in range(count):
+		var t := float(i) / float(count - 1)
+		var a := base_a - spread / 2.0 + t * spread
+		_spawn(Vector2(cos(a), sin(a)), BULLET_SPEED * 1.05)
+
+	# Light radial coverage so the player can't simply ignore the rest of the arena
+	for i in range(3):
+		var a := _angle + TAU * float(i) / 3.0
+		_spawn(Vector2(cos(a), sin(a)), BULLET_SPEED * 0.80)
+
+
+# ------------------------------------------------------------------ #
+#  Helpers
+# ------------------------------------------------------------------ #
 
 func _spawn(dir: Vector2, speed: float) -> void:
 	var b := BULLET_SCENE.instantiate()

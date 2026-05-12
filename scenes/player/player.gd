@@ -10,6 +10,10 @@ const BOOST_COOLDOWN := 1.0
 const RADIUS         := 10.0
 const ARENA_RADIUS   := 355.0
 
+# SCION outline — ring around the player that reacts to confidence thresholds
+const OUTLINE_RADIUS := 15.5
+const OUTLINE_SEGS   := 24
+
 var hp             := MAX_HP
 var boosting       := false
 var boost_timer    := 0.0
@@ -19,20 +23,29 @@ var _inv_timer     := 0.0
 
 @onready var _visual: Polygon2D = $Visual
 
+var _outline     : Line2D
+var _sparks      : CPUParticles2D
+var _spark_timer : float = 0.0      # controls intermittent crackle timing
+
+
 func _ready() -> void:
 	add_to_group("player")
 	_init_collider()
 	_init_visual()
 	_init_hitbox()
+	_init_scion_effects()
+
 
 func _init_collider() -> void:
 	var s := CircleShape2D.new()
 	s.radius = RADIUS
 	$CollisionShape2D.shape = s
 
+
 func _init_visual() -> void:
 	_visual.polygon = _circle_pts(RADIUS, 12)
 	_visual.color = Color(0.93, 0.93, 0.97, 1.0)
+
 
 func _init_hitbox() -> void:
 	var hitbox := Area2D.new()
@@ -47,6 +60,39 @@ func _init_hitbox() -> void:
 	hitbox.add_child(cs)
 	add_child(hitbox)
 
+
+func _init_scion_effects() -> void:
+	# Outline ring — Line2D circle rendered behind the player body
+	_outline = Line2D.new()
+	_outline.width = 2.5
+	_outline.default_color = Color(0.85, 0.08, 0.08, 0.0)   # invisible at start
+	_outline.z_index = -1
+	var pts := _circle_pts(OUTLINE_RADIUS, OUTLINE_SEGS)
+	var closed := PackedVector2Array(pts)
+	closed.append(pts[0])   # close the ring
+	_outline.points = closed
+	add_child(_outline)
+
+	# Spark particles — crackle effect at 80%+ confidence
+	_sparks = CPUParticles2D.new()
+	_sparks.emitting                = false
+	_sparks.amount                  = 8
+	_sparks.lifetime                = 0.30
+	_sparks.one_shot                = true
+	_sparks.explosiveness           = 0.90
+	_sparks.emission_shape          = CPUParticles2D.EMISSION_SHAPE_SPHERE_SURFACE
+	_sparks.emission_sphere_radius  = OUTLINE_RADIUS
+	_sparks.direction               = Vector2(1.0, 0.0)
+	_sparks.spread                  = 180.0   # full 360° in CPUParticles2D convention
+	_sparks.initial_velocity_min    = 22.0
+	_sparks.initial_velocity_max    = 60.0
+	_sparks.gravity                 = Vector2.ZERO
+	_sparks.scale_amount_min        = 0.7
+	_sparks.scale_amount_max        = 2.2
+	_sparks.color                   = Color(0.92, 0.18, 0.08, 0.90)
+	add_child(_sparks)
+
+
 func _input(event: InputEvent) -> void:
 	if event is InputEventKey:
 		var k := event as InputEventKey
@@ -54,9 +100,15 @@ func _input(event: InputEvent) -> void:
 			if cooldown_timer <= 0.0 and not boosting:
 				_activate_boost()
 
+
 func _physics_process(delta: float) -> void:
 	_tick_timers(delta)
 	_move()
+
+
+func _process(delta: float) -> void:
+	_refresh_scion_effects(delta)
+
 
 func _move() -> void:
 	var dir := Vector2.ZERO
@@ -71,9 +123,9 @@ func _move() -> void:
 	velocity = velocity.lerp(dir * spd, 0.8)
 	move_and_slide()
 
-	# Soft circular boundary — keeps Wraith inside the hex approximation
 	if position.length() > ARENA_RADIUS:
 		position = position.normalized() * ARENA_RADIUS
+
 
 func _tick_timers(delta: float) -> void:
 	if boosting:
@@ -91,6 +143,7 @@ func _tick_timers(delta: float) -> void:
 
 	_refresh_visual()
 
+
 func _refresh_visual() -> void:
 	if _invincible:
 		var base := Color(0.55, 0.76, 1.0) if boosting else Color(0.93, 0.93, 0.97)
@@ -101,9 +154,46 @@ func _refresh_visual() -> void:
 	else:
 		_visual.color = Color(0.93, 0.93, 0.97, 1.0)
 
+
+func _refresh_scion_effects(delta: float) -> void:
+	var conf := SCIONTracker.confidence
+	var t    := Time.get_ticks_msec() / 1000.0
+
+	if conf < 0.3:
+		# No outline yet
+		_outline.default_color = Color(0.85, 0.08, 0.08, 0.0)
+		_sparks.emitting = false
+		return
+
+	if conf < 0.6:
+		# 30%–60%: faint static red outline
+		var alpha := remap(conf, 0.3, 0.6, 0.10, 0.28)
+		_outline.default_color = Color(0.85, 0.08, 0.08, alpha)
+		_sparks.emitting = false
+
+	elif conf < 0.8:
+		# 60%–80%: outline pulses slowly
+		var base_alpha := remap(conf, 0.6, 0.8, 0.25, 0.45)
+		var pulse      := base_alpha + 0.18 * abs(sin(t * 1.7))
+		_outline.default_color = Color(0.88, 0.10, 0.10, pulse)
+		_sparks.emitting = false
+
+	else:
+		# 80%+: pulsing outline + intermittent spark crackles
+		var pulse := 0.45 + 0.20 * abs(sin(t * 2.4))
+		_outline.default_color = Color(0.92, 0.14, 0.08, pulse)
+
+		# Crackle: fire a one-shot burst on a random interval
+		_spark_timer -= delta
+		if _spark_timer <= 0.0:
+			_spark_timer = randf_range(0.12, 0.40)
+			_sparks.restart()
+
+
 func _activate_boost() -> void:
 	boosting = true
 	boost_timer = BOOST_DURATION
+
 
 func take_damage(amount: int = 1) -> void:
 	if _invincible:
@@ -115,6 +205,7 @@ func take_damage(amount: int = 1) -> void:
 	if hp <= 0:
 		_die()
 
+
 func _die() -> void:
 	hp = MAX_HP
 	position = Vector2.ZERO
@@ -122,6 +213,7 @@ func _die() -> void:
 	_invincible = true
 	_inv_timer = 2.0
 	hp_changed.emit(hp)
+
 
 func _circle_pts(r: float, n: int) -> PackedVector2Array:
 	var pts := PackedVector2Array()
