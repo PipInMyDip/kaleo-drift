@@ -1,0 +1,28 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scenes/arena/arena.gd" id="1_arena"]
+[ext_resource type="Script" path="res://scenes/player/player.gd" id="2_player"]
+[ext_resource type="Script" path="res://scenes/bullets/bullet_emitter.gd" id="3_emitter"]
+
+[node name="Arena" type="Node2D"]
+script = ExtResource("1_arena")
+
+[node name="Camera2D" type="Camera2D" parent="."]
+
+[node name="HexVisual" type="Polygon2D" parent="."]
+
+[node name="HexBorder" type="Line2D" parent="."]
+
+[node name="CenterMarker" type="Node2D" parent="."]
+
+[node name="BulletEmitter" type="Node2D" parent="."]
+script = ExtResource("3_emitter")
+
+[node name="Player" type="CharacterBody2D" parent="."]
+script = ExtResource("2_player")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Player"]
+
+[node name="Visual" type="Polygon2D" parent="Player"]
+
+[node name="Bullets" type="Node2D" parent="."]

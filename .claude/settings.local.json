@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(New-Item -ItemType Directory -Force \"C:\\\\Users\\\\snuzz\\\\kaleo-drift\\\\scenes\\\\arena\")",
+      "Bash(Out-Null)",
+      "Bash(New-Item -ItemType Directory -Force \"C:\\\\Users\\\\snuzz\\\\kaleo-drift\\\\scenes\\\\player\")",
+      "Bash(New-Item -ItemType Directory -Force \"C:\\\\Users\\\\snuzz\\\\kaleo-drift\\\\scenes\\\\bullets\")",
+      "Bash(Write-Output \"dirs created\")"
+    ]
+  }
+}
