@@ -24,7 +24,8 @@ var _spiral_angle : float = 0.0
 var _wall_gap     : float = 0.0
 var _burst_num    : int   = 0
 
-var paused : bool = false
+var paused     : bool  = false
+var speed_mult : float = 1.0
 
 
 func _ready() -> void:
@@ -220,7 +221,7 @@ func _burst_mirror(player: Node) -> void:
 
 func _spawn(dir: Vector2, speed: float) -> void:
 	var b := BULLET_SCENE.instantiate()
-	b.init(dir, speed)
+	b.init(dir, speed * speed_mult)
 	_container.add_child(b)
 
 

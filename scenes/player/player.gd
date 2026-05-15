@@ -1,6 +1,7 @@
 extends CharacterBody2D
 
 signal hp_changed(new_hp: int)
+signal died
 
 const MAX_HP         := 5
 const SPEED          := 280.0
@@ -236,6 +237,7 @@ func take_damage(amount: int = 1) -> void:
 
 
 func _die() -> void:
+	died.emit()
 	hp = MAX_HP
 	position    = Vector2.ZERO
 	velocity    = Vector2.ZERO

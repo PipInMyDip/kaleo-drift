@@ -135,10 +135,23 @@ func _build_ui() -> void:
 	sub.add_theme_color_override("font_color", Color(0.28, 0.30, 0.55))
 	add_child(sub)
 
+	# SCION memory warning
+	var has_memory := not GameState.scion_memory.is_empty()
+	if has_memory:
+		var warn := Label.new()
+		warn.text     = "PRIOR BEHAVIORAL DATA DETECTED. CONFIDENCE BASELINE: 15%"
+		warn.size     = Vector2(1280.0, 20.0)
+		warn.position = Vector2(0.0, 140.0)
+		warn.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		warn.add_theme_font_size_override("font_size", 11)
+		warn.add_theme_color_override("font_color", Color(0.85, 0.18, 0.18))
+		add_child(warn)
+
 	# Card grid
-	var total_w := GRID_COLS * CARD_W + (GRID_COLS - 1) * CARD_GAP
-	var total_h := GRID_ROWS * CARD_H + (GRID_ROWS - 1) * CARD_GAP
-	var origin  := Vector2((1280.0 - total_w) / 2.0, (720.0 - total_h) / 2.0 + 22.0)
+	var total_w      := GRID_COLS * CARD_W + (GRID_COLS - 1) * CARD_GAP
+	var total_h      := GRID_ROWS * CARD_H + (GRID_ROWS - 1) * CARD_GAP
+	var card_shift_y := 28.0 if has_memory else 0.0
+	var origin       := Vector2((1280.0 - total_w) / 2.0, (720.0 - total_h) / 2.0 + 22.0 + card_shift_y)
 
 	for i in range(CLASSES.size()):
 		var cls  : Dictionary = CLASSES[i]

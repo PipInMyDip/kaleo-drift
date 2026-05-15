@@ -431,3 +431,63 @@ func _refresh_panel() -> void:
 	if dom != _hex_diagram.dominant_zone:
 		_hex_diagram.dominant_zone = dom
 		_hex_diagram.queue_redraw()
+
+
+# ------------------------------------------------------------------ #
+#  Roguelike persistence
+# ------------------------------------------------------------------ #
+
+func end_run() -> void:
+	var mem    := {}
+	const KEEP := 0.30
+	var new_zone_time := []
+	for i in range(ZONE_COUNT):
+		new_zone_time.append(float(zone_time[i]) * KEEP)
+	mem["zone_time"] = new_zone_time
+
+	var new_dodge := {}
+	for dir in dodge_counts:
+		new_dodge[dir] = int(float(dodge_counts[dir]) * KEEP)
+	mem["dodge_counts"]      = new_dodge
+	mem["baseline_samples"]  = int(0.15 * CONFIDENCE_TARGET)
+	GameState.scion_memory   = mem
+
+
+func load_memory() -> void:
+	confidence       = 0.0
+	anomaly_score    = 0.0
+	aggression_index = 0.0
+	zone_time        = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+	zone_weights     = [1.0/6.0, 1.0/6.0, 1.0/6.0, 1.0/6.0, 1.0/6.0, 1.0/6.0]
+	dodge_counts     = {"left": 0, "right": 0, "up": 0, "down": 0}
+	response_latencies = []
+	last_dodge_source  = Vector2.ZERO
+	_total_samples   = 0
+	_recent_actions  = []
+	_last_zone       = -1
+	_zone_timer      = 0.0
+	_lat_pending     = false
+	_lat_timeout     = 0.0
+
+	if GameState.scion_memory.is_empty():
+		return
+
+	var mem : Dictionary = GameState.scion_memory
+
+	if mem.has("zone_time"):
+		zone_time = mem["zone_time"].duplicate()
+
+	if mem.has("dodge_counts"):
+		for dir in mem["dodge_counts"]:
+			dodge_counts[dir] = mem["dodge_counts"][dir]
+
+	var baseline : int = mem.get("baseline_samples", 0)
+	_total_samples = baseline
+	confidence     = min(1.0, float(_total_samples) / CONFIDENCE_TARGET)
+
+	var total := 0.0
+	for t in zone_time:
+		total += float(t)
+	if total > 0.0:
+		for i in range(ZONE_COUNT):
+			zone_weights[i] = float(zone_time[i]) / total

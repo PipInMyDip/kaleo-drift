@@ -184,4 +184,5 @@ func emp_freeze(duration: float) -> void:
 
 
 func die() -> void:
+	GameState.add_score(100)
 	queue_free()
