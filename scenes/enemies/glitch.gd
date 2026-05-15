@@ -23,6 +23,7 @@ var _lunge_timer    : float = 0.0
 var _lunge_cooldown : float = 0.0
 
 var frozen           : bool  = false
+var allied           : bool  = false
 var _mercy_timer     : float = 0.0
 var _emp_freeze_timer: float = 0.0
 
@@ -79,10 +80,19 @@ func _physics_process(delta: float) -> void:
 
 
 func _draw() -> void:
-	draw_polygon(_pts, _cols)
-	var n := _pts.size()
-	for i in range(n):
-		draw_line(_pts[i], _pts[(i + 1) % n], Color(1.0, 0.18, 0.08, 0.55), 1.0)
+	if allied:
+		var gold_cols := PackedColorArray()
+		for i in range(_pts.size()):
+			gold_cols.append(Color(1.0, 0.82, 0.10, 1.0) if i % 2 == 0 else Color(0.06, 0.04, 0.08, 1.0))
+		draw_polygon(_pts, gold_cols)
+		var n := _pts.size()
+		for i in range(n):
+			draw_line(_pts[i], _pts[(i + 1) % n], Color(1.0, 0.82, 0.10, 0.55), 1.0)
+	else:
+		draw_polygon(_pts, _cols)
+		var n := _pts.size()
+		for i in range(n):
+			draw_line(_pts[i], _pts[(i + 1) % n], Color(1.0, 0.18, 0.08, 0.55), 1.0)
 
 
 func _current_speed(conf: float) -> float:
@@ -122,6 +132,25 @@ func _tick_lunge(delta: float, conf: float) -> void:
 
 func _update_target(delta: float, conf: float) -> void:
 	if _lunge_timer > 0.0:
+		return
+
+	# Allied — chase and kill other Glitches
+	if allied:
+		var others := []
+		for e in get_tree().get_nodes_in_group("enemies"):
+			if e != self and not e.get("allied"):
+				others.append(e)
+		if others.size() > 0:
+			var best : Node2D = others[0] as Node2D
+			var bd   : float  = position.distance_to(best.position)
+			for e in others:
+				var d := position.distance_to((e as Node2D).position)
+				if d < bd:
+					bd   = d
+					best = e as Node2D
+			_target = best.position
+			if bd < 22.0 and best.has_method("die"):
+				best.die()
 		return
 
 	# While player is going dark, lose target and wander randomly

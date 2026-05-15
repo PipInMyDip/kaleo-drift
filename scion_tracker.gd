@@ -62,6 +62,10 @@ var confidence       : float = 0.0
 var anomaly_score    : float = 0.0
 var aggression_index : float = 0.0   # placeholder
 
+# Class ability flags
+var signal_corrupted  : bool = false   # Soldier Last Stand — corrupts panel display
+var broadcast_active  : bool = false   # Commander Broadcast — swaps zone_weights
+
 var zone_time    : Array = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 var zone_weights : Array = [1.0/6.0, 1.0/6.0, 1.0/6.0, 1.0/6.0, 1.0/6.0, 1.0/6.0]
 var dodge_counts : Dictionary = {"left": 0, "right": 0, "up": 0, "down": 0}
@@ -141,6 +145,15 @@ func _tick_zones(player: Node, delta: float) -> void:
 	if total > 0.0:
 		for i in range(ZONE_COUNT):
 			zone_weights[i] = float(zone_time[i]) / total
+		if broadcast_active:
+			var dom  := 0
+			var lest := 0
+			for i in range(1, ZONE_COUNT):
+				if float(zone_time[i]) > float(zone_time[dom]):  dom  = i
+				if float(zone_time[i]) < float(zone_time[lest]): lest = i
+			var tmp            = zone_weights[dom]
+			zone_weights[dom]  = zone_weights[lest]
+			zone_weights[lest] = tmp
 
 
 func _zone_of(pos: Vector2) -> int:
@@ -269,6 +282,7 @@ func _add_sample() -> void:
 # ------------------------------------------------------------------ #
 
 func _status_text(conf: float) -> String:
+	if signal_corrupted: return "SIGNAL CORRUPTED"
 	if conf < 0.30: return "WATCHING"
 	if conf < 0.50: return "ANALYZING"
 	if conf < 0.70: return "LEARNING"
@@ -277,6 +291,7 @@ func _status_text(conf: float) -> String:
 
 
 func _status_color(conf: float) -> Color:
+	if signal_corrupted: return Color(1.0, 0.45, 0.0, 1.0)
 	if conf < 0.30: return Color(0.40, 0.40, 0.48, 1.0)
 	if conf < 0.50: return Color(0.52, 0.48, 0.44, 1.0)
 	if conf < 0.70: return Color(0.62, 0.42, 0.36, 1.0)

@@ -10,6 +10,7 @@ extends Node2D
 #   0.8+    — mirror: fires back at the player's last safe spot
 
 signal burst_cycle_complete
+signal preview_burst(directions: Array)
 
 const BULLET_SCENE   := preload("res://scenes/bullets/bullet.tscn")
 const FIRE_INTERVAL  := 0.55
@@ -24,8 +25,9 @@ var _spiral_angle : float = 0.0
 var _wall_gap     : float = 0.0
 var _burst_num    : int   = 0
 
-var paused     : bool  = false
-var speed_mult : float = 1.0
+var paused         : bool  = false
+var speed_mult     : float = 1.0
+var preview_active : bool  = false
 
 
 func _ready() -> void:
@@ -44,6 +46,8 @@ func _process(delta: float) -> void:
 		_angle += deg_to_rad(12.0)
 		if _burst_num % BURSTS_PER_CYCLE == 0:
 			burst_cycle_complete.emit()
+			if preview_active:
+				preview_burst.emit(_compute_preview_dirs())
 
 
 func _fire() -> void:
@@ -235,3 +239,54 @@ func subvert() -> void:
 	_wall_gap     = randf() * TAU
 	_burst_num    = 0
 	_timer        = 0.0
+
+
+func _compute_preview_dirs() -> Array:
+	var dirs   := []
+	var player := _find_player()
+	var conf   := SCIONTracker.confidence
+
+	if player == null or conf < 0.3:
+		for i in range(BULLET_COUNT):
+			var a := _angle + TAU * float(i) / float(BULLET_COUNT)
+			dirs.append(Vector2(cos(a), sin(a)))
+	elif conf < 0.4:
+		for _i in range(BULLET_COUNT):
+			var zone := _sample_zone_weighted()
+			var a    := float(zone) * TAU / 6.0 + randf_range(-0.20, 0.20)
+			dirs.append(Vector2(cos(a), sin(a)))
+	elif conf < 0.6:
+		var dom_zone := SCIONTracker.get_dominant_zone()
+		var target_a := float(dom_zone) * TAU / 6.0
+		var sa       := _spiral_angle + deg_to_rad(22.0)
+		sa            = lerp_angle(sa, target_a, 0.07)
+		var step      := deg_to_rad(14.0)
+		for i in range(10):
+			var a := sa + step * float(i)
+			dirs.append(Vector2(cos(a), sin(a)))
+	elif conf < 0.8:
+		var least_zone := SCIONTracker.get_least_zone()
+		var target_gap := float(least_zone) * TAU / 6.0
+		var gap        := lerp_angle(_wall_gap, target_gap, 0.12)
+		var gap_half   := deg_to_rad(34.0)
+		for i in range(14):
+			var a    := _angle + TAU * float(i) / 14.0
+			var diff := abs(fmod(a - gap + PI, TAU) - PI)
+			if diff >= gap_half:
+				dirs.append(Vector2(cos(a), sin(a)))
+	else:
+		var source := SCIONTracker.last_dodge_source
+		if source.length_squared() > 4.0:
+			var back_dir := source.normalized()
+			var base_a   := atan2(back_dir.y, back_dir.x)
+			var spread   := deg_to_rad(52.0)
+			for i in range(8):
+				var t := float(i) / 7.0
+				var a := base_a - spread / 2.0 + t * spread
+				dirs.append(Vector2(cos(a), sin(a)))
+		else:
+			for i in range(BULLET_COUNT):
+				var a := _angle + TAU * float(i) / float(BULLET_COUNT)
+				dirs.append(Vector2(cos(a), sin(a)))
+
+	return dirs

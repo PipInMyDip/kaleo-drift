@@ -73,6 +73,8 @@ func _ready() -> void:
 	player.hp_changed.connect(_on_hp_changed)
 	player.died.connect(_on_player_died)
 	$BulletEmitter.burst_cycle_complete.connect(_on_burst_cycle_complete)
+	$BulletEmitter.preview_burst.connect(player._on_preview_burst)
+	$BulletEmitter.add_to_group("bullet_emitters")
 	_start_wave(0)
 
 
@@ -545,6 +547,46 @@ func _tick_ability_label() -> void:
 			var n := get_tree().get_nodes_in_group("emps").size()
 			_ability_label.text     = "Q: EMP  (%d/2 active)" % n
 			_ability_label.modulate = cls_color if n < 2 else Color(0.45, 0.45, 0.45)
+		"soldier":
+			if player._low_hp_flash_timer > 0.0:
+				_ability_label.text     = "LOW HP REQUIRED"
+				_ability_label.modulate = Color(1.0, 0.30, 0.30)
+			elif player._last_stand_timer > 0.0:
+				_ability_label.text     = "LAST STAND: %.1fs" % player._last_stand_timer
+				_ability_label.modulate = Color(1.0, 0.45, 0.0)
+			elif player._last_stand_cooldown > 0.0:
+				_ability_label.text     = "Q: %.1fs" % player._last_stand_cooldown
+				_ability_label.modulate = Color(0.55, 0.28, 0.0)
+			else:
+				_ability_label.text     = "Q: LAST STAND"
+				_ability_label.modulate = cls_color
+		"scout":
+			if player._foresight_timer > 0.0:
+				_ability_label.text     = "FORESIGHT: %.1fs" % player._foresight_timer
+				_ability_label.modulate = Color(0.20, 1.00, 0.40)
+			elif player._foresight_cooldown > 0.0:
+				_ability_label.text     = "Q: %.1fs" % player._foresight_cooldown
+				_ability_label.modulate = Color(0.12, 0.55, 0.25)
+			else:
+				_ability_label.text     = "Q: FORESIGHT"
+				_ability_label.modulate = cls_color
+		"commander":
+			if player._broadcast_timer > 0.0:
+				_ability_label.text     = "BROADCAST: %.1fs" % player._broadcast_timer
+				_ability_label.modulate = Color(1.0, 0.82, 0.10)
+			elif player._broadcast_cooldown > 0.0:
+				_ability_label.text     = "Q: %.1fs" % player._broadcast_cooldown
+				_ability_label.modulate = Color(0.55, 0.45, 0.0)
+			else:
+				_ability_label.text     = "Q: BROADCAST"
+				_ability_label.modulate = cls_color
+		"blank":
+			if player._blank_name_timer > 0.0:
+				_ability_label.text     = player._blank_last_name
+				_ability_label.modulate = Color(1.0, 1.0, 1.0, player._blank_name_timer / 2.0)
+			else:
+				_ability_label.text     = "Q: ?"
+				_ability_label.modulate = Color(1.0, 1.0, 1.0)
 		_:
 			_ability_label.text     = "Q: —"
 			_ability_label.modulate = cls_color
